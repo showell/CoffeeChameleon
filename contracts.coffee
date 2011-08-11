@@ -61,7 +61,8 @@ PersonInboundInterface = (person, inbound_interface) ->
     friend: (data) -> person.friend(data.friend)
   inbound_interface.adapt("/person/#{person.name}", remote_methods)
   
-# Now we can make "alice" a REST-ful like object.
+# Now we can make "alice" a REST-ful like object, as long as
+# our web_server object supports an "adapt" method.
 PersonInboundInterface(alice, web_server)
 web_server.post "/person/alice/add_wealth", {money: 150}
 web_server.post "/person/alice/friend", {friend: "calvin"}
@@ -116,8 +117,8 @@ engineering = (name) ->
     web_interface:
       add_staff: (data) -> self.add_staff(data.person)
       pay: (data) -> self.pay(data.money)
-    outbound:
-      report_earnings: (send) -> send
+    pubsub:
+      report_earnings: ->
         revenue: revenue
         staff: employees
   return self
@@ -131,14 +132,36 @@ engineering.report_earnings()
         
 # Now create a generic Chameleon function that exposes
 # an object to WebServer.
-TieToWebServer = (object) ->
+TieToWebServer = (object, web_server) ->
   helpers = object.helpers
   web_server.adapt helpers.resource_name, helpers.web_interface
   
-TieToWebServer(engineering)
+# Now hook up engineering to WebServer.
+TieToWebServer(engineering, web_server)
 console.log "\n====Tied to WebServer"
 web_server.post "/Department/Engineering/add_staff", {person: "mike"}
 console.log engineering.staff()
+
+# Create another Chameleon function that intercepts function
+# calls and sends them to PubSub.
+TieToPubSub = (object, pubsub) ->
+  helpers = object.helpers
+  for method_name, data_function of helpers.pubsub
+    object[method_name] = ->
+      channel = helpers.resource_name + "/" + method_name 
+      data = data_function()
+      pubsub.publish channel, data
+  null
+      
+# Now hook up engineering to PubSub, with a subscriber
+TieToPubSub(engineering, pubsub)
+pubsub.subscribe "/Department/Engineering/report_earnings", (data) ->
+  console.log "I only care about revenue: #{data.revenue}"
+
+# When we exceed 100 in revenue, we'll see that report_earnings gets
+# called, and the new method publishes to our subscribers.
+console.log "\n====Tied to PubSub"
+engineering.pay(60)
       
     
 

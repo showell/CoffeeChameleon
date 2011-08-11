@@ -1,5 +1,5 @@
 (function() {
-  var Person, PersonInboundInterface, PersonOutboundInterface, PubSub, TieToWebServer, WebServer, alice, engineering, pubsub, web_server;
+  var Person, PersonInboundInterface, PersonOutboundInterface, PubSub, TieToPubSub, TieToWebServer, WebServer, alice, engineering, pubsub, web_server;
   WebServer = function() {
     var routes;
     routes = {};
@@ -163,12 +163,12 @@
           return self.pay(data.money);
         }
       },
-      outbound: {
-        report_earnings: function(send) {
-          return send({
+      pubsub: {
+        report_earnings: function() {
+          return {
             revenue: revenue,
             staff: employees
-          });
+          };
         }
       }
     };
@@ -179,15 +179,36 @@
   engineering.add_staff("kate");
   engineering.pay(50);
   engineering.report_earnings();
-  TieToWebServer = function(object) {
+  TieToWebServer = function(object, web_server) {
     var helpers;
     helpers = object.helpers;
     return web_server.adapt(helpers.resource_name, helpers.web_interface);
   };
-  TieToWebServer(engineering);
+  TieToWebServer(engineering, web_server);
   console.log("\n====Tied to WebServer");
   web_server.post("/Department/Engineering/add_staff", {
     person: "mike"
   });
   console.log(engineering.staff());
+  TieToPubSub = function(object, pubsub) {
+    var data_function, helpers, method_name, _ref;
+    helpers = object.helpers;
+    _ref = helpers.pubsub;
+    for (method_name in _ref) {
+      data_function = _ref[method_name];
+      object[method_name] = function() {
+        var channel, data;
+        channel = helpers.resource_name + "/" + method_name;
+        data = data_function();
+        return pubsub.publish(channel, data);
+      };
+    }
+    return null;
+  };
+  TieToPubSub(engineering, pubsub);
+  pubsub.subscribe("/Department/Engineering/report_earnings", function(data) {
+    return console.log("I only care about revenue: " + data.revenue);
+  });
+  console.log("\n====Tied to PubSub");
+  engineering.pay(60);
 }).call(this);
